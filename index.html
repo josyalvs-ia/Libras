@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f6feb">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Ouvir e Ver</title>
+<style>
+  :root { --azul:#1f6feb; --verm:#d1242f; --fundo:#ffffff; --texto:#111; --cinza:#888; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; height:100dvh; background:var(--fundo); color:var(--texto);
+    font-family:-apple-system, system-ui, Roboto, Arial, sans-serif; }
+  body { display:flex; flex-direction:column; }
+  #texto { flex:1; overflow-y:auto; padding:16px 16px 120px; font-size:30px; line-height:1.35; }
+  #texto p { margin:0 0 14px; }
+  #provisorio { color:var(--cinza); }
+  #dica { color:var(--cinza); font-size:24px; text-align:center; margin-top:20vh; }
+  #barra { padding:calc(12px + env(safe-area-inset-top)) 16px 12px;
+    background:var(--fundo); border-bottom:1px solid #ddd; display:flex; gap:10px; align-items:center; }
+  #botao { flex:1; height:80px; border:0; border-radius:20px; font-size:28px; font-weight:700;
+    color:#fff; background:var(--azul); }
+  #botao.ouvindo { background:var(--verm); }
+  .peq { width:64px; height:80px; border:2px solid #ccc; border-radius:16px; background:#fff;
+    font-size:24px; font-weight:700; color:var(--texto); }
+  #erro { color:var(--verm); font-size:22px; padding:0 16px; }
+  #erro:not(:empty) { padding:12px 16px; background:#fff3f3; }
+</style>
+</head>
+<body>
+
+<div id="barra">
+  <button class="peq" id="menor" aria-label="Diminuir letra">A−</button>
+  <button id="botao">▶ OUVIR</button>
+  <button class="peq" id="maior" aria-label="Aumentar letra">A+</button>
+</div>
+
+<div id="erro"></div>
+<div id="texto">
+  <div id="dica">👆<br>Aperte o botão azul<br>para começar</div>
+</div>
+
+
+
+<!-- VLibras: avatar gratuito do Governo Federal que traduz português para Libras -->
+<div vw class="enabled">
+  <div vw-access-button class="active"></div>
+  <div vw-plugin-wrapper><div class="vw-plugin-top-wrapper"></div></div>
+</div>
+<script src="https://vlibras.gov.br/app/vlibras-plugin.js"></script>
+<script>
+  try { new window.VLibras.Widget('https://vlibras.gov.br/app'); } catch (e) {}
+</script>
+
+<script>
+(function () {
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var botao = document.getElementById('botao');
+  var caixa = document.getElementById('texto');
+  var erro = document.getElementById('erro');
+  var tamanho = 30;
+  var ouvindo = false;
+  var rec = null;
+  var trava = null;
+  var provisorio = null;
+
+  if (!SR) {
+    erro.textContent = 'Este navegador não consegue ouvir. Abra o link no Safari (iPhone) ou no Chrome (Android).';
+  }
+
+  // Envia a frase para o avatar do VLibras (se ele estiver aberto)
+  function libras(frase) {
+    try {
+      if (window.plugin && window.plugin.player) window.plugin.player.translate(frase);
+    } catch (e) {}
+  }
+
+  function rolarParaBaixo() { caixa.scrollTop = caixa.scrollHeight; }
+
+  function iniciar() {
+    if (!SR) {
+      erro.textContent = 'Este navegador não consegue ouvir. Abra o link no Safari (iPhone) ou no Chrome (Android).';
+      return;
+    }
+    var dica = document.getElementById('dica');
+    if (dica) dica.remove();
+    erro.textContent = '';
+
+    rec = new SR();
+    rec.lang = 'pt-BR';
+    rec.continuous = true;
+    rec.interimResults = true;
+
+    rec.onresult = function (ev) {
+      var temp = '';
+      for (var i = ev.resultIndex; i < ev.results.length; i++) {
+        var t = ev.results[i][0].transcript.trim();
+        if (!t) continue;
+        if (ev.results[i].isFinal) {
+          var p = document.createElement('p');
+          p.textContent = t.charAt(0).toUpperCase() + t.slice(1);
+          caixa.insertBefore(p, provisorio);
+          libras(t);
+        } else {
+          temp += t + ' ';
+        }
+      }
+      provisorio.textContent = temp;
+      rolarParaBaixo();
+    };
+
+    rec.onerror = function (ev) {
+      if (ev.error === 'no-speech' || ev.error === 'aborted') return;
+      var msgs = {
+        'not-allowed': 'O microfone está bloqueado. Abra o app pelo link no Safari ou Chrome e toque em "Permitir" quando ele pedir o microfone.',
+        'service-not-allowed': 'O reconhecimento de voz está bloqueado aqui. Abra o app pelo link no Safari ou Chrome.',
+        'audio-capture': 'Não achei o microfone do celular.',
+        'network': 'Sem internet. O app precisa de internet para entender a fala.'
+      };
+      erro.textContent = msgs[ev.error] || ('Não consegui ouvir (' + ev.error + '). Tente de novo.');
+      parar();
+    };
+    rec.onstart = function () {
+      if (!caixa.querySelector('p:not(#provisorio)')) provisorio.textContent = 'Ouvindo... 👂';
+    };
+
+    // O navegador desliga sozinho depois de um tempo: religamos automaticamente
+    rec.onend = function () { if (ouvindo) { try { rec.start(); } catch (e) {} } };
+
+    if (!provisorio) {
+      provisorio = document.createElement('p');
+      provisorio.id = 'provisorio';
+      caixa.appendChild(provisorio);
+    }
+
+    ouvindo = true;
+    try { rec.start(); } catch (e) {
+      erro.textContent = 'Não consegui ligar o microfone. Abra o app pelo link no Safari ou Chrome.';
+      ouvindo = false;
+      return;
+    }
+    botao.textContent = '■ PARAR';
+    botao.classList.add('ouvindo');
+
+    // Mantém a tela acesa durante o culto
+    if (navigator.wakeLock) navigator.wakeLock.request('screen').then(function (w) { trava = w; }).catch(function () {});
+  }
+
+  function parar() {
+    ouvindo = false;
+    if (rec) try { rec.stop(); } catch (e) {}
+    botao.textContent = '▶ OUVIR';
+    botao.classList.remove('ouvindo');
+    if (trava) { trava.release(); trava = null; }
+  }
+
+  botao.onclick = function () { ouvindo ? parar() : iniciar(); };
+
+  function mudarLetra(d) {
+    tamanho = Math.max(18, Math.min(60, tamanho + d));
+    caixa.style.fontSize = tamanho + 'px';
+  }
+  document.getElementById('maior').onclick = function () { mudarLetra(4); };
+  document.getElementById('menor').onclick = function () { mudarLetra(-4); };
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible' && ouvindo && navigator.wakeLock && !trava) {
+      navigator.wakeLock.request('screen').then(function (w) { trava = w; }).catch(function () {});
+    }
+  });
+})();
+</script>
+</body>
+</html>
